@@ -2,8 +2,9 @@ package mypkg
 
 import (
 	"fmt"
+	ma "github.com/multiformats/go-multiaddr"
 	"io"
-	"net"
+	"log"
 )
 
 type Action interface {
@@ -17,42 +18,51 @@ func relay(dst io.Writer, src io.Reader, ch chan<- error, index int) {
 	ch <- err
 }
 
-func Init(port int, action Action) string {
-	l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+func Init(listenPort int, proxyPort int, remoteAddr string) string {
+	host := makeRandomHost("127.0.0.1", listenPort)
+	destPeerID := addAddrToPeerstore(host, remoteAddr)
+	println(destPeerID)
+	proxyAddr, err := ma.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", proxyPort))
 	if err != nil {
-		return err.Error()
+		log.Fatalln(err)
 	}
-	go func() {
-		for {
-			conn, err := l.Accept()
-			action.Print("accept new conn")
-			if err != nil {
-				action.Print(fmt.Sprintf("accept error %+v\n", err))
-				return
-			}
-			go func() {
-				stream := &innerTestStream{}
-				ch := make(chan error)
-
-				go relay(conn, stream, ch, 1)
-				go relay(stream, conn, ch, 2)
-
-				// 只要有一个结束 就认为结束了
-				action.Print("begin wait response")
-				err = <-ch
-				action.Print("end wait response")
-				if err != nil {
-					action.Print(fmt.Sprintf("relay error %+v", err))
-				}
-				if err = conn.Close(); err != nil {
-					action.Print(fmt.Sprintf("conn Close error %+v", err))
-				}
-				if err = stream.Close(); err != nil {
-					action.Print(fmt.Sprintf("stream Close error %+v", err))
-				}
-			}()
-		}
-	}()
+	proxy := newProxyService(host, proxyAddr, destPeerID)
+	go proxy.Serve() // serve hangs forever
+	//l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort))
+	//if err != nil {
+	//	return err.Error()
+	//}
+	//go func() {
+	//	for {
+	//		conn, err := l.Accept()
+	//		action.Print("accept new conn")
+	//		if err != nil {
+	//			action.Print(fmt.Sprintf("accept error %+v\n", err))
+	//			return
+	//		}
+	//		go func() {
+	//			stream := &innerTestStream{}
+	//			ch := make(chan error)
+	//
+	//			go relay(conn, stream, ch, 1)
+	//			go relay(stream, conn, ch, 2)
+	//
+	//			// 只要有一个结束 就认为结束了
+	//			action.Print("begin wait response")
+	//			err = <-ch
+	//			action.Print("end wait response")
+	//			if err != nil {
+	//				action.Print(fmt.Sprintf("relay error %+v", err))
+	//			}
+	//			if err = conn.Close(); err != nil {
+	//				action.Print(fmt.Sprintf("conn Close error %+v", err))
+	//			}
+	//			if err = stream.Close(); err != nil {
+	//				action.Print(fmt.Sprintf("stream Close error %+v", err))
+	//			}
+	//		}()
+	//	}
+	//}()
 	return "ok"
 }
 
